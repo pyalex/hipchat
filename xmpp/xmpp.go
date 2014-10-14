@@ -20,13 +20,14 @@ const (
 	NsDisco        = "http://jabber.org/protocol/disco#items"
 	NsMuc          = "http://jabber.org/protocol/muc"
 
-	xmlStream      = "<stream:stream from='%s' to='%s' version='1.0' xml:lang='en' xmlns='%s' xmlns:stream='%s'>"
-	xmlStartTLS    = "<starttls xmlns='%s'/>"
-	xmlIqSet       = "<iq type='set' id='%s'><query xmlns='%s'><username>%s</username><password>%s</password><resource>%s</resource></query></iq>"
-	xmlIqGet       = "<iq from='%s' to='%s' id='%s' type='get'><query xmlns='%s'/></iq>"
-	xmlPresence    = "<presence from='%s'><show>%s</show></presence>"
-	xmlMUCPresence = "<presence id='%s' to='%s' from='%s'><x xmlns='%s'/></presence>"
-	xmlMUCMessage  = "<message from='%s' id='%s' to='%s' type='groupchat'><body>%s</body></message>"
+	xmlStream         = "<stream:stream from='%s' to='%s' version='1.0' xml:lang='en' xmlns='%s' xmlns:stream='%s'>"
+	xmlStartTLS       = "<starttls xmlns='%s'/>"
+	xmlIqSet          = "<iq type='set' id='%s'><query xmlns='%s'><username>%s</username><password>%s</password><resource>%s</resource></query></iq>"
+	xmlIqGet          = "<iq from='%s' to='%s' id='%s' type='get'><query xmlns='%s'/></iq>"
+	xmlPresence       = "<presence from='%s'><show>%s</show></presence>"
+	xmlMUCPresence    = "<presence id='%s' to='%s' from='%s'><x xmlns='%s'><history maxstanzas='20'/></x></presence>"
+	xmlMUCUnavailable = "<presence from='%s' to='%s' type='unavailable'/>"
+	xmlMUCMessage     = "<message from='%s' id='%s' to='%s' type='groupchat'><body>%s</body></message>"
 )
 
 type required struct{}
@@ -61,6 +62,16 @@ type Message struct {
 	Jid         string
 	MentionName string
 	Body        string
+}
+
+type MessageDelay struct {
+	Stamp string `xml:"stamp,attr"`
+}
+
+type IncomingMessage struct {
+	XMLName xml.Name     `xml:"message"`
+	Body    string       `xml:"body"`
+	Delay   MessageDelay `xml:"delay"`
 }
 
 func (c *Conn) Stream(jid, host string) {
@@ -120,6 +131,12 @@ func (c *Conn) Body() string {
 	return b.Body
 }
 
+func (c *Conn) Message(start *xml.StartElement) *IncomingMessage {
+	m := new(IncomingMessage)
+	c.incoming.DecodeElement(&m, start)
+	return m
+}
+
 func (c *Conn) Query() *query {
 	q := new(query)
 	c.incoming.DecodeElement(q, nil)
@@ -132,6 +149,10 @@ func (c *Conn) Presence(jid, pres string) {
 
 func (c *Conn) MUCPresence(roomId, jid string) {
 	fmt.Fprintf(c.outgoing, xmlMUCPresence, id(), roomId, jid, NsMuc)
+}
+
+func (c *Conn) MUCUnavailable(roomId, jid string) {
+	fmt.Fprintf(c.outgoing, xmlMUCUnavailable, jid, roomId)
 }
 
 func (c *Conn) MUCSend(to, from, body string) {

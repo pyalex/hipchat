@@ -2,7 +2,7 @@ package hipchat
 
 import (
 	"errors"
-	"github.com/daneharrigan/hipchat/xmpp"
+	"github.com/pyalex/hipchat/xmpp"
 	"time"
 )
 
@@ -33,6 +33,8 @@ type Message struct {
 	To          string
 	Body        string
 	MentionName string
+	Stamp       time.Time
+	Mid         string
 }
 
 // A User represents a member of the HipChat service.
@@ -109,6 +111,10 @@ func (c *Client) Status(s string) {
 // room.
 func (c *Client) Join(roomId, resource string) {
 	c.connection.MUCPresence(roomId+"/"+resource, c.Id)
+}
+
+func (c *Client) Leave(roomId, resource string) {
+	c.connection.MUCUnavailable(roomId+"/"+resource, c.Id)
 }
 
 // Say accepts a room id, the name of the client in the room, and the message
@@ -201,10 +207,18 @@ func (c *Client) listen() {
 				continue
 			}
 
+			m := c.connection.Message(&element)
+			stamp, err := time.Parse("2006-01-02T15:04:05Z", m.Delay.Stamp)
+			if err != nil {
+				stamp = time.Now()
+			}
+
 			c.receivedMessage <- &Message{
-				From: attr["from"],
-				To:   attr["to"],
-				Body: c.connection.Body(),
+				From:  attr["from"],
+				To:    attr["to"],
+				Body:  m.Body,
+				Mid:   attr["mid"],
+				Stamp: stamp,
 			}
 		}
 	}
