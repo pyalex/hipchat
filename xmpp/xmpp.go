@@ -25,7 +25,7 @@ const (
 	xmlIqSet          = "<iq type='set' id='%s'><query xmlns='%s'><username>%s</username><password>%s</password><resource>%s</resource></query></iq>"
 	xmlIqGet          = "<iq from='%s' to='%s' id='%s' type='get'><query xmlns='%s'/></iq>"
 	xmlPresence       = "<presence from='%s'><show>%s</show></presence>"
-	xmlMUCPresence    = "<presence id='%s' to='%s' from='%s'><x xmlns='%s'><history maxstanzas='20'/></x></presence>"
+	xmlMUCPresence    = "<presence id='%s' to='%s' from='%s'><x xmlns='%s'><history maxstanzas='%d'/></x></presence>"
 	xmlMUCUnavailable = "<presence from='%s' to='%s' type='unavailable'/>"
 	xmlMUCMessage     = "<message from='%s' id='%s' to='%s' type='groupchat'><body>%s</body></message>"
 )
@@ -147,8 +147,8 @@ func (c *Conn) Presence(jid, pres string) {
 	fmt.Fprintf(c.outgoing, xmlPresence, jid, pres)
 }
 
-func (c *Conn) MUCPresence(roomId, jid string) {
-	fmt.Fprintf(c.outgoing, xmlMUCPresence, id(), roomId, jid, NsMuc)
+func (c *Conn) MUCPresence(roomId, jid string, history int) {
+	fmt.Fprintf(c.outgoing, xmlMUCPresence, id(), roomId, jid, NsMuc, history)
 }
 
 func (c *Conn) MUCUnavailable(roomId, jid string) {

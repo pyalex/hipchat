@@ -3,6 +3,7 @@ package hipchat
 import (
 	"errors"
 	"github.com/pyalex/hipchat/xmpp"
+	"log"
 	"time"
 )
 
@@ -25,6 +26,7 @@ type Client struct {
 	receivedUsers   chan []*User
 	receivedRooms   chan []*Room
 	receivedMessage chan *Message
+	OnReconnect     chan bool
 }
 
 // A Message represents a message received from HipChat.
@@ -68,6 +70,7 @@ func NewClient(user, pass, resource string) (*Client, error) {
 		receivedUsers:   make(chan []*User),
 		receivedRooms:   make(chan []*Room),
 		receivedMessage: make(chan *Message),
+		OnReconnect:     make(chan bool),
 	}
 
 	if err != nil {
@@ -109,8 +112,8 @@ func (c *Client) Status(s string) {
 
 // Join accepts the room id and the name used to display the client in the
 // room.
-func (c *Client) Join(roomId, resource string) {
-	c.connection.MUCPresence(roomId+"/"+resource, c.Id)
+func (c *Client) Join(roomId, resource string, history int) {
+	c.connection.MUCPresence(roomId+"/"+resource, c.Id, history)
 }
 
 func (c *Client) Leave(roomId, resource string) {
@@ -177,11 +180,25 @@ func (c *Client) authenticate() error {
 	return errors.New("unexpectedly ended auth loop")
 }
 
+func (c *Client) reconnect() {
+	log.Println("Reconnecting")
+	connection, err := xmpp.Dial(host)
+	if err != nil {
+		panic(err)
+	}
+
+	c.connection = connection
+	c.authenticate()
+	c.OnReconnect <- true
+}
+
 func (c *Client) listen() {
 	for {
 		element, err := c.connection.Next()
 		if err != nil {
-			return
+			log.Println("Smth went wrong", err)
+			c.reconnect()
+			continue
 		}
 
 		switch element.Name.Local + element.Name.Space {
@@ -220,6 +237,8 @@ func (c *Client) listen() {
 				Mid:   attr["mid"],
 				Stamp: stamp,
 			}
+		default:
+			log.Println("Unknown tag", element.Name, element.Attr)
 		}
 	}
 }
