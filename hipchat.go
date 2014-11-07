@@ -8,8 +8,8 @@ import (
 )
 
 var (
-	host = "chat.hipchat.com"
-	conf = "conf.hipchat.com"
+	Host = "chat.hipchat.com"
+	Conf = "conf.hipchat.com"
 )
 
 // A Client represents the connection between the application to the HipChat
@@ -56,13 +56,13 @@ type Room struct {
 // NewClient creates a new Client connection from the user name, password and
 // resource passed to it.
 func NewClient(user, pass, resource string) (*Client, error) {
-	connection, err := xmpp.Dial(host)
+	connection, err := xmpp.Dial(Host)
 
 	c := &Client{
 		Username: user,
 		Password: pass,
 		Resource: resource,
-		Id:       user + "@" + host,
+		Id:       user + "@" + Host,
 
 		// private
 		connection:      connection,
@@ -136,15 +136,15 @@ func (c *Client) KeepAlive() {
 }
 
 func (c *Client) requestRooms() {
-	c.connection.Discover(c.Id, conf)
+	c.connection.Discover(c.Id, Conf)
 }
 
 func (c *Client) requestUsers() {
-	c.connection.Roster(c.Id, host)
+	c.connection.Roster(c.Id, Host)
 }
 
 func (c *Client) authenticate() error {
-	c.connection.Stream(c.Id, host)
+	c.connection.Stream(c.Id, Host)
 	for {
 		element, err := c.connection.Next()
 		if err != nil {
@@ -165,7 +165,7 @@ func (c *Client) authenticate() error {
 			}
 		case "proceed" + xmpp.NsTLS:
 			c.connection.UseTLS()
-			c.connection.Stream(c.Id, host)
+			c.connection.Stream(c.Id, Host)
 		case "iq" + xmpp.NsJabberClient:
 			for _, attr := range element.Attr {
 				if attr.Name.Local == "type" && attr.Value == "result" {
@@ -182,7 +182,7 @@ func (c *Client) authenticate() error {
 
 func (c *Client) reconnect() {
 	log.Println("Reconnecting")
-	connection, err := xmpp.Dial(host)
+	connection, err := xmpp.Dial(Host)
 	if err != nil {
 		panic(err)
 	}

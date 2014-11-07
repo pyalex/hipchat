@@ -83,7 +83,7 @@ func (c *Conn) StartTLS() {
 }
 
 func (c *Conn) UseTLS() {
-	c.outgoing = tls.Client(c.outgoing, &tls.Config{ServerName: "chat.hipchat.com"})
+	c.outgoing = tls.Client(c.outgoing, &tls.Config{InsecureSkipVerify: true})
 	c.incoming = xml.NewDecoder(c.outgoing)
 }
 
