@@ -131,7 +131,7 @@ func (c *Client) Say(roomId, name, body string) {
 // idling after 150 seconds.
 func (c *Client) KeepAlive() {
 	for _ = range time.Tick(60 * time.Second) {
-		c.connection.KeepAlive()
+		c.connection.KeepAlive(c.Id)
 	}
 }
 
@@ -217,6 +217,8 @@ func (c *Client) listen() {
 					items[i] = &User{Id: item.Jid, Name: item.Name, MentionName: item.MentionName}
 				}
 				c.receivedUsers <- items
+			default:
+				log.Println("Unknown tag", element.Name, element.Attr)
 			}
 		case "message" + xmpp.NsJabberClient:
 			attr := xmpp.ToMap(element.Attr)

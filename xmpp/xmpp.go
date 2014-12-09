@@ -28,6 +28,7 @@ const (
 	xmlMUCPresence    = "<presence id='%s' to='%s' from='%s'><x xmlns='%s'><history maxstanzas='%d'/></x></presence>"
 	xmlMUCUnavailable = "<presence from='%s' to='%s' type='unavailable'/>"
 	xmlMUCMessage     = "<message from='%s' id='%s' to='%s' type='groupchat'><body>%s</body></message>"
+	xmlPing           = "<iq from='%s' id='%s' type='get'><ping xmlns='urn:xmpp:ping'/></iq>"
 )
 
 type required struct{}
@@ -163,8 +164,8 @@ func (c *Conn) Roster(from, to string) {
 	fmt.Fprintf(c.outgoing, xmlIqGet, from, to, id(), NsIqRoster)
 }
 
-func (c *Conn) KeepAlive() {
-	fmt.Fprintf(c.outgoing, " ")
+func (c *Conn) KeepAlive(from string) {
+	fmt.Fprintf(c.outgoing, xmlPing, from, id())
 }
 
 func Dial(host string) (*Conn, error) {
