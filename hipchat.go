@@ -4,6 +4,7 @@ import (
 	"errors"
 	"github.com/pyalex/hipchat/xmpp"
 	"log"
+	"strings"
 	"time"
 )
 
@@ -203,6 +204,14 @@ func (c *Client) listen() {
 
 		switch element.Name.Local + element.Name.Space {
 		case "iq" + xmpp.NsJabberClient: // rooms and rosters
+
+			//check ping
+			attr := xmpp.ToMap(element.Attr)
+			if strings.HasPrefix(attr["id"], "ping") {
+				log.Println("pong")
+				continue
+			}
+
 			query := c.connection.Query()
 			switch query.XMLName.Space {
 			case xmpp.NsDisco:
@@ -217,8 +226,6 @@ func (c *Client) listen() {
 					items[i] = &User{Id: item.Jid, Name: item.Name, MentionName: item.MentionName}
 				}
 				c.receivedUsers <- items
-			default:
-				log.Println("Unknown tag", element.Name, element.Attr)
 			}
 		case "message" + xmpp.NsJabberClient:
 			attr := xmpp.ToMap(element.Attr)
