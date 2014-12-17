@@ -26,7 +26,7 @@ const (
 	xmlIqGet          = "<iq from='%s' to='%s' id='%s' type='get'><query xmlns='%s'/></iq>"
 	xmlPresence       = "<presence from='%s'><show>%s</show></presence>"
 	xmlMUCPresence    = "<presence id='%s' to='%s' from='%s'><x xmlns='%s'><history maxstanzas='%d'/></x></presence>"
-	xmlMUCUnavailable = "<presence from='%s' to='%s' type='unavailable'/>"
+	xmlMUCUnavailable = "<presence id='%s' from='%s' to='%s' type='unavailable'/>"
 	xmlMUCMessage     = "<message from='%s' id='%s' to='%s' type='groupchat'><body>%s</body></message>"
 	xmlPing           = "<iq from='%s' id='%s' type='get'><ping xmlns='urn:xmpp:ping'/></iq>"
 )
@@ -153,7 +153,7 @@ func (c *Conn) MUCPresence(roomId, jid string, history int) {
 }
 
 func (c *Conn) MUCUnavailable(roomId, jid string) {
-	fmt.Fprintf(c.outgoing, xmlMUCUnavailable, jid, roomId)
+	fmt.Fprintf(c.outgoing, xmlMUCUnavailable, id(), jid, roomId)
 }
 
 func (c *Conn) MUCSend(to, from, body string) {
