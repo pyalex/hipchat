@@ -4,7 +4,6 @@ import (
 	"errors"
 	"github.com/pyalex/hipchat/xmpp"
 	"log"
-	"strings"
 	"time"
 )
 
@@ -28,6 +27,7 @@ type Client struct {
 	receivedRooms   chan []*Room
 	receivedMessage chan *Message
 	OnReconnect     chan bool
+	alive           chan bool
 }
 
 // A Message represents a message received from HipChat.
@@ -72,6 +72,7 @@ func NewClient(user, pass, resource string) (*Client, error) {
 		receivedRooms:   make(chan []*Room),
 		receivedMessage: make(chan *Message),
 		OnReconnect:     make(chan bool),
+		alive:           make(chan bool),
 	}
 
 	if err != nil {
@@ -84,6 +85,7 @@ func NewClient(user, pass, resource string) (*Client, error) {
 	}
 
 	go c.listen()
+	go c.AliveChecker()
 	return c, nil
 }
 
@@ -132,7 +134,18 @@ func (c *Client) Say(roomId, name, body string) {
 // idling after 150 seconds.
 func (c *Client) KeepAlive() {
 	for _ = range time.Tick(60 * time.Second) {
-		c.connection.KeepAlive(c.Id)
+		c.connection.Discover(c.Id, "1_default@"+Conf)
+	}
+}
+
+func (c *Client) AliveChecker() {
+	for {
+		select {
+		case <-time.After(2 * time.Minute):
+			c.reconnect()
+		case <-c.alive:
+			log.Println("Hipchat connection is alive")
+		}
 	}
 }
 
@@ -204,13 +217,7 @@ func (c *Client) listen() {
 
 		switch element.Name.Local + element.Name.Space {
 		case "iq" + xmpp.NsJabberClient: // rooms and rosters
-
-			//check ping
-			attr := xmpp.ToMap(element.Attr)
-			if strings.HasPrefix(attr["id"], "ping") {
-				log.Println("pong")
-				continue
-			}
+			c.alive <- true
 
 			query := c.connection.Query()
 			switch query.XMLName.Space {

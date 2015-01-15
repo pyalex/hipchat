@@ -165,7 +165,7 @@ func (c *Conn) Roster(from, to string) {
 }
 
 func (c *Conn) KeepAlive(from string) {
-	fmt.Fprintf(c.outgoing, xmlPing, from, "ping"+id())
+	fmt.Fprintf(c.outgoing, " ")
 }
 
 func Dial(host string) (*Conn, error) {
