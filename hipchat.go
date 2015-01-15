@@ -27,7 +27,6 @@ type Client struct {
 	receivedRooms   chan []*Room
 	receivedMessage chan *Message
 	OnReconnect     chan bool
-	alive           chan bool
 }
 
 // A Message represents a message received from HipChat.
@@ -72,7 +71,6 @@ func NewClient(user, pass, resource string) (*Client, error) {
 		receivedRooms:   make(chan []*Room),
 		receivedMessage: make(chan *Message),
 		OnReconnect:     make(chan bool),
-		alive:           make(chan bool),
 	}
 
 	if err != nil {
@@ -143,7 +141,7 @@ func (c *Client) AliveChecker() {
 		select {
 		case <-time.After(2 * time.Minute):
 			c.reconnect()
-		case <-c.alive:
+		case <-c.receivedRooms:
 			log.Println("Hipchat connection is alive")
 		}
 	}
@@ -217,8 +215,6 @@ func (c *Client) listen() {
 
 		switch element.Name.Local + element.Name.Space {
 		case "iq" + xmpp.NsJabberClient: // rooms and rosters
-			c.alive <- true
-
 			query := c.connection.Query()
 			switch query.XMLName.Space {
 			case xmpp.NsDisco:
