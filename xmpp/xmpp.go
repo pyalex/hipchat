@@ -12,14 +12,15 @@ import (
 )
 
 const (
-	NsJabberClient = "jabber:client"
-	NsStream       = "http://etherx.jabber.org/streams"
-	NsIqAuth       = "jabber:iq:auth"
-	NsIqRoster     = "jabber:iq:roster"
-	NsTLS          = "urn:ietf:params:xml:ns:xmpp-tls"
-	NsDisco        = "http://jabber.org/protocol/disco#items"
-	NsMuc          = "http://jabber.org/protocol/muc"
-
+	NsJabberClient    = "jabber:client"
+	NsStream          = "http://etherx.jabber.org/streams"
+	NsIqAuth          = "jabber:iq:auth"
+	NsIqRoster        = "jabber:iq:roster"
+	NsTLS             = "urn:ietf:params:xml:ns:xmpp-tls"
+	NsDisco           = "http://jabber.org/protocol/disco#items"
+	NsMuc             = "http://jabber.org/protocol/muc"
+	NsMucUser         = "http://jabber.org/protocol/muc#user"
+	NsMucRoom         = "http://hipchat.com/protocol/muc#room"
 	xmlStream         = "<stream:stream from='%s' to='%s' version='1.0' xml:lang='en' xmlns='%s' xmlns:stream='%s'>"
 	xmlStartTLS       = "<starttls xmlns='%s'/>"
 	xmlIqSet          = "<iq type='set' id='%s'><query xmlns='%s'><username>%s</username><password>%s</password><resource>%s</resource></query></iq>"
@@ -43,6 +44,8 @@ type item struct {
 	Jid         string `xml:"jid,attr"`
 	Name        string `xml:"name,attr"`
 	MentionName string `xml:"mention_name,attr"`
+	Topic       string `xml:"topic"`
+	Owner       string `xml:"owner"`
 }
 
 type query struct {
@@ -73,6 +76,24 @@ type IncomingMessage struct {
 	XMLName xml.Name     `xml:"message"`
 	Body    string       `xml:"body"`
 	Delay   MessageDelay `xml:"delay"`
+}
+
+type invite struct {
+	XMLName xml.Name `xml:"invite"`
+	From    string   `xml:"from,attr"`
+	Reason  string   `xml:"reason"`
+}
+
+type xroom struct {
+	Name  string `xml:"name"`
+	Topic string `xml:"topic"`
+}
+
+type InviteMessage struct {
+	XMLName xml.Name `xml:"message"`
+	RoomJid string   `xml:"from,attr"`
+	Invite  invite   `xml:"http://jabber.org/protocol/muc#user x>invite"`
+	Room    xroom    `xml:"http://hipchat.com/protocol/muc#room x"`
 }
 
 func (c *Conn) Stream(jid, host string) {
@@ -142,6 +163,15 @@ func (c *Conn) Query() *query {
 	q := new(query)
 	c.incoming.DecodeElement(q, nil)
 	return q
+}
+
+func (c *Conn) Invite(start *xml.StartElement) *InviteMessage {
+	i := new(InviteMessage)
+	c.incoming.DecodeElement(&i, start)
+	if i.Invite.From == "" || i.Room.Topic == "" {
+		return nil
+	}
+	return i
 }
 
 func (c *Conn) Presence(jid, pres string) {

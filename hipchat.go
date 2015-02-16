@@ -27,6 +27,7 @@ type Client struct {
 	receivedRooms   chan []*Room
 	receivedMessage chan *Message
 	OnReconnect     chan bool
+	alive           chan bool
 }
 
 // A Message represents a message received from HipChat.
@@ -49,8 +50,10 @@ type User struct {
 // A Room represents a room in HipChat the Client can join to communicate with
 // other members..
 type Room struct {
-	Id   string
-	Name string
+	Id    string
+	Name  string
+	Owner string
+	Topic string
 }
 
 // NewClient creates a new Client connection from the user name, password and
@@ -71,6 +74,7 @@ func NewClient(user, pass, resource string) (*Client, error) {
 		receivedRooms:   make(chan []*Room),
 		receivedMessage: make(chan *Message),
 		OnReconnect:     make(chan bool),
+		alive:           make(chan bool),
 	}
 
 	if err != nil {
@@ -132,17 +136,17 @@ func (c *Client) Say(roomId, name, body string) {
 // idling after 150 seconds.
 func (c *Client) KeepAlive() {
 	for _ = range time.Tick(60 * time.Second) {
-		c.connection.Discover(c.Id, "1_default@"+Conf)
+		c.Join("1_default@"+Conf, "WS HipChat", 1)
 	}
 }
 
 func (c *Client) AliveChecker() {
 	for {
 		select {
+		case <-c.alive:
+			c.Leave("1_default@"+Conf, "WS HipChat")
 		case <-time.After(2 * time.Minute):
 			c.reconnect()
-		case <-c.receivedRooms:
-			log.Println("Hipchat connection is alive")
 		}
 	}
 }
@@ -217,10 +221,11 @@ func (c *Client) listen() {
 		case "iq" + xmpp.NsJabberClient: // rooms and rosters
 			query := c.connection.Query()
 			switch query.XMLName.Space {
-			case xmpp.NsDisco:
+			case xmpp.NsMucRoom:
 				items := make([]*Room, len(query.Items))
 				for i, item := range query.Items {
-					items[i] = &Room{Id: item.Jid, Name: item.Name}
+					items[i] = &Room{Id: item.Jid, Name: item.Name,
+						Owner: item.Owner, Topic: item.Topic}
 				}
 				c.receivedRooms <- items
 			case xmpp.NsIqRoster:
@@ -232,7 +237,16 @@ func (c *Client) listen() {
 			}
 		case "message" + xmpp.NsJabberClient:
 			attr := xmpp.ToMap(element.Attr)
+
 			if attr["type"] != "groupchat" {
+				log.Println("invite")
+				invite := c.connection.Invite(&element)
+				if invite != nil {
+					items := make([]*Room, 1)
+					items[0] = &Room{Id: invite.RoomJid, Name: invite.Room.Name,
+						Owner: invite.Invite.From, Topic: invite.Room.Topic}
+					c.receivedRooms <- items
+				}
 				continue
 			}
 
@@ -241,7 +255,7 @@ func (c *Client) listen() {
 			if err != nil {
 				stamp = time.Now()
 			}
-
+			c.alive <- true
 			c.receivedMessage <- &Message{
 				From:  attr["from"],
 				To:    attr["to"],
@@ -250,7 +264,7 @@ func (c *Client) listen() {
 				Stamp: stamp,
 			}
 		default:
-			log.Println("Unknown tag", element.Name, element.Attr)
+			log.Println(element.Name.Local, element.Name.Space, element.Attr)
 		}
 	}
 }
