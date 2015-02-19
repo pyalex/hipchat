@@ -87,7 +87,6 @@ func NewClient(user, pass, resource string) (*Client, error) {
 	}
 
 	go c.listen()
-	go c.AliveChecker()
 	return c, nil
 }
 
@@ -134,17 +133,18 @@ func (c *Client) Say(roomId, name, body string) {
 // KeepAlive is meant to run as a goroutine. It sends a single whitespace
 // character to HipChat every 60 seconds. This keeps the connection from
 // idling after 150 seconds.
-func (c *Client) KeepAlive() {
+func (c *Client) KeepAlive(nickname string) {
+	go c.AliveChecker(nickname)
 	for _ = range time.Tick(2 * time.Minute) {
-		c.Join("1_default@"+Conf, "WS HipChat", 1)
+		c.Join("1_default@"+Conf, nickname, 1)
 	}
 }
 
-func (c *Client) AliveChecker() {
+func (c *Client) AliveChecker(nickname string) {
 	for {
 		select {
 		case <-c.alive:
-			c.Leave("1_default@"+Conf, "WS HipChat")
+			c.Leave("1_default@"+Conf, nickname)
 		case <-time.After(5 * time.Minute):
 			c.reconnect()
 		}
