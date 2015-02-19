@@ -198,6 +198,7 @@ func (c *Client) authenticate() error {
 
 func (c *Client) reconnect() {
 	log.Println("Reconnecting")
+	time.Sleep(1 * time.Minute)
 	connection, err := xmpp.Dial(Host)
 	if err != nil {
 		panic(err)
