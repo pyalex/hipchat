@@ -146,7 +146,7 @@ func (c *Client) AliveChecker(nickname string) {
 		case <-c.alive:
 			c.Leave("1_default@"+Conf, nickname)
 		case <-time.After(5 * time.Minute):
-			c.reconnect()
+			c.connection.Close()
 		}
 	}
 }
