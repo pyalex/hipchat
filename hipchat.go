@@ -197,8 +197,11 @@ func (c *Client) authenticate() error {
 }
 
 func (c *Client) reconnect() {
-	log.Println("Reconnecting")
-	c.connection.Close()
+	log.Println("Reconnecting...")
+	err := c.connection.Close()
+	if err != nil {
+		log.Println(err)
+	}
 
 	time.Sleep(1 * time.Minute)
 	connection, err := xmpp.Dial(Host)
@@ -208,6 +211,8 @@ func (c *Client) reconnect() {
 
 	c.connection = connection
 	c.authenticate()
+
+	log.Println("New connection")
 	c.Status("available")
 	c.OnReconnect <- true
 }

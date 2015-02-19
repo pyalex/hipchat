@@ -198,8 +198,8 @@ func (c *Conn) KeepAlive(from string) {
 	fmt.Fprintf(c.outgoing, " ")
 }
 
-func (c *Conn) Close() {
-	c.outgoing.Close()
+func (c *Conn) Close() error {
+	return c.outgoing.Close()
 }
 
 func Dial(host string) (*Conn, error) {
