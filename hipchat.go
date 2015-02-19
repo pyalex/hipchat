@@ -135,7 +135,7 @@ func (c *Client) Say(roomId, name, body string) {
 // character to HipChat every 60 seconds. This keeps the connection from
 // idling after 150 seconds.
 func (c *Client) KeepAlive() {
-	for _ = range time.Tick(60 * time.Second) {
+	for _ = range time.Tick(2 * time.Minute) {
 		c.Join("1_default@"+Conf, "WS HipChat", 1)
 	}
 }
@@ -145,7 +145,7 @@ func (c *Client) AliveChecker() {
 		select {
 		case <-c.alive:
 			c.Leave("1_default@"+Conf, "WS HipChat")
-		case <-time.After(2 * time.Minute):
+		case <-time.After(5 * time.Minute):
 			c.reconnect()
 		}
 	}
@@ -198,6 +198,8 @@ func (c *Client) authenticate() error {
 
 func (c *Client) reconnect() {
 	log.Println("Reconnecting")
+	c.connection.Close()
+
 	time.Sleep(1 * time.Minute)
 	connection, err := xmpp.Dial(Host)
 	if err != nil {
