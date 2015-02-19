@@ -206,6 +206,7 @@ func (c *Client) reconnect() {
 
 	c.connection = connection
 	c.authenticate()
+	c.Status("available")
 	c.OnReconnect <- true
 }
 
