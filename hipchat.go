@@ -136,6 +136,7 @@ func (c *Client) Say(roomId, name, body string) {
 func (c *Client) KeepAlive(nickname string) {
 	go c.AliveChecker(nickname)
 	for _ = range time.Tick(2 * time.Minute) {
+		log.Println("keep alive")
 		c.Join("1_default@"+Conf, nickname, 1)
 	}
 }
@@ -144,6 +145,7 @@ func (c *Client) AliveChecker(nickname string) {
 	for {
 		select {
 		case <-c.alive:
+			log.Println("alive")
 			c.Leave("1_default@"+Conf, nickname)
 		case <-time.After(5 * time.Minute):
 			c.connection.Close()
