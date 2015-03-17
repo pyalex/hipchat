@@ -77,7 +77,7 @@ func NewClient(user, pass, resource string) (*Client, error) {
 		mentionNames:    make(map[string]string),
 		receivedUsers:   make(chan []*User),
 		receivedRooms:   make(chan []*Room),
-		receivedMessage: make(chan *Message),
+		receivedMessage: make(chan *Message, 20),
 		OnReconnect:     make(chan bool),
 
 		messageBuffer:   make([]Message, 0),
@@ -126,7 +126,7 @@ func (c *Client) Status(s string) {
 // Join accepts the room id and the name used to display the client in the
 // room.
 func (c *Client) Join(roomId, resource string, history int) {
-	c.connection.MUCPresence(roomId+"/"+resource, c.Id, history)
+	c.connection.MUCPresence(roomId+"/"+resource, c.Id+"/"+c.Resource, history)
 }
 
 func (c *Client) Leave(roomId, resource string) {
@@ -136,7 +136,7 @@ func (c *Client) Leave(roomId, resource string) {
 // Say accepts a room id, the name of the client in the room, and the message
 // body and sends the message to the HipChat room.
 func (c *Client) Say(roomId, name, body string) {
-	c.connection.MUCSend(roomId, c.Id+"/"+name, body)
+	c.connection.MUCSend(roomId, c.Id+"/"+c.Resource, body)
 }
 
 // KeepAlive is meant to run as a goroutine. It sends a single whitespace
@@ -305,13 +305,14 @@ func (c *Client) listen() {
 				c.recievedHistory <- c.messageBuffer
 				c.messageBuffer = c.messageBuffer[:0]
 			case "body":
+				body := c.connection.Body(&element)
 				m := c.connection.Message(&element)
 
 				//c.alive <- true
 				c.receivedMessage <- &Message{
 					From:  m.From,
 					To:    m.To,
-					Body:  m.Body,
+					Body:  body,
 					Mid:   m.MID,
 					Stamp: strtotime(m.Delay.Stamp),
 				}
