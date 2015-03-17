@@ -20,14 +20,19 @@ type Client struct {
 	Resource string
 	Id       string
 
+	OnReconnect chan bool
+
 	// private
 	mentionNames    map[string]string
 	connection      *xmpp.Conn
 	receivedUsers   chan []*User
 	receivedRooms   chan []*Room
 	receivedMessage chan *Message
-	OnReconnect     chan bool
-	alive           chan bool
+
+	messageBuffer   []Message
+	recievedHistory chan []Message
+
+	alive chan bool
 }
 
 // A Message represents a message received from HipChat.
@@ -74,7 +79,11 @@ func NewClient(user, pass, resource string) (*Client, error) {
 		receivedRooms:   make(chan []*Room),
 		receivedMessage: make(chan *Message),
 		OnReconnect:     make(chan bool),
-		alive:           make(chan bool),
+
+		messageBuffer:   make([]Message, 0),
+		recievedHistory: make(chan []Message),
+
+		alive: make(chan bool),
 	}
 
 	if err != nil {
@@ -161,6 +170,11 @@ func (c *Client) requestUsers() {
 	c.connection.Roster(c.Id, Host)
 }
 
+func (c *Client) LoadHistory(roomJid string, start time.Time, limit int) []Message {
+	c.connection.History(roomJid, start, limit)
+	return <-c.recievedHistory
+}
+
 func (c *Client) authenticate() error {
 	c.connection.Stream(c.Id, Host)
 	for {
@@ -177,13 +191,22 @@ func (c *Client) authenticate() error {
 			} else {
 				for _, m := range features.Mechanisms {
 					if m == "PLAIN" {
-						c.connection.Auth(c.Username, c.Password, c.Resource)
+						c.connection.Auth(c.Username, c.Password)
 					}
 				}
 			}
 		case "proceed" + xmpp.NsTLS:
 			c.connection.UseTLS()
 			c.connection.Stream(c.Id, Host)
+
+		case "success" + xmpp.NsSASL:
+			c.connection.Stream(c.Id, Host)
+			c.connection.Bind(c.Resource)
+			c.connection.Session()
+
+		case "failure" + xmpp.NsSASL:
+			return errors.New("could not authenticate")
+
 		case "iq" + xmpp.NsJabberClient:
 			for _, attr := range element.Attr {
 				if attr.Name.Local == "type" && attr.Value == "result" {
@@ -219,6 +242,14 @@ func (c *Client) reconnect() {
 	c.OnReconnect <- true
 }
 
+func strtotime(str string) time.Time {
+	stamp, err := time.Parse("2006-01-02T15:04:05Z", str)
+	if err != nil {
+		stamp = time.Now()
+	}
+	return stamp
+}
+
 func (c *Client) listen() {
 	for {
 		element, err := c.connection.Next()
@@ -230,6 +261,10 @@ func (c *Client) listen() {
 
 		switch element.Name.Local + element.Name.Space {
 		case "iq" + xmpp.NsJabberClient: // rooms and rosters
+			if c.connection.Body(&element) == "" {
+				continue
+			}
+
 			query := c.connection.Query()
 			switch query.XMLName.Space {
 			case xmpp.NsMucRoom:
@@ -247,33 +282,51 @@ func (c *Client) listen() {
 				c.receivedUsers <- items
 			}
 		case "message" + xmpp.NsJabberClient:
-			attr := xmpp.ToMap(element.Attr)
-
-			if attr["type"] != "groupchat" {
-				log.Println("invite")
-				invite := c.connection.Invite(&element)
-				if invite != nil {
-					items := make([]*Room, 1)
-					items[0] = &Room{Id: invite.RoomJid, Name: invite.Room.Name,
-						Owner: invite.Invite.From, Topic: invite.Room.Topic}
-					c.receivedRooms <- items
-				}
+			log.Println("incoming..")
+			next, err := c.connection.Next()
+			if err != nil {
 				continue
 			}
+			switch next.Name.Local {
+			case "x":
+				log.Println("invite")
+				invite := c.connection.Invite(&element)
+				if invite == nil {
+					continue
+				}
 
-			m := c.connection.Message(&element)
-			stamp, err := time.Parse("2006-01-02T15:04:05Z", m.Delay.Stamp)
-			if err != nil {
-				stamp = time.Now()
+				items := make([]*Room, 1)
+				items[0] = &Room{Id: invite.RoomJid, Name: invite.Room.Name,
+					Owner: invite.Invite.From, Topic: invite.Room.Topic}
+				//c.receivedRooms <- items
+			case "result":
+				continue
+			case "fin":
+				c.recievedHistory <- c.messageBuffer
+				c.messageBuffer = c.messageBuffer[:0]
+			case "body":
+				m := c.connection.Message(&element)
+
+				//c.alive <- true
+				c.receivedMessage <- &Message{
+					From:  m.From,
+					To:    m.To,
+					Body:  m.Body,
+					Mid:   m.MID,
+					Stamp: strtotime(m.Delay.Stamp),
+				}
 			}
-			c.alive <- true
-			c.receivedMessage <- &Message{
-				From:  attr["from"],
-				To:    attr["to"],
-				Body:  m.Body,
-				Mid:   attr["mid"],
-				Stamp: stamp,
-			}
+		case "forwarded" + xmpp.NsMamForward:
+			log.Println("forwarded")
+			forwarded := c.connection.ForwardedMessage(&element)
+
+			c.messageBuffer = append(c.messageBuffer, Message{
+				From:  forwarded.Message.From,
+				To:    forwarded.Message.To,
+				Body:  forwarded.Message.Body,
+				Mid:   forwarded.Message.MID,
+				Stamp: strtotime(forwarded.Delay.Stamp),
+			})
 		default:
 			log.Println(element.Name.Local, element.Name.Space, element.Attr)
 		}

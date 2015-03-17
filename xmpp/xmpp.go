@@ -3,33 +3,47 @@ package xmpp
 import (
 	"crypto/rand"
 	"crypto/tls"
+	"encoding/base64"
 	"encoding/xml"
 	"errors"
 	"fmt"
 	"html"
 	"io"
 	"net"
+	"strings"
+	"time"
 )
 
 const (
-	NsJabberClient    = "jabber:client"
-	NsStream          = "http://etherx.jabber.org/streams"
-	NsIqAuth          = "jabber:iq:auth"
-	NsIqRoster        = "jabber:iq:roster"
-	NsTLS             = "urn:ietf:params:xml:ns:xmpp-tls"
-	NsDisco           = "http://jabber.org/protocol/disco#items"
-	NsMuc             = "http://jabber.org/protocol/muc"
-	NsMucUser         = "http://jabber.org/protocol/muc#user"
-	NsMucRoom         = "http://hipchat.com/protocol/muc#room"
-	xmlStream         = "<stream:stream from='%s' to='%s' version='1.0' xml:lang='en' xmlns='%s' xmlns:stream='%s'>"
-	xmlStartTLS       = "<starttls xmlns='%s'/>"
-	xmlIqSet          = "<iq type='set' id='%s'><query xmlns='%s'><username>%s</username><password>%s</password><resource>%s</resource></query></iq>"
-	xmlIqGet          = "<iq from='%s' to='%s' id='%s' type='get'><query xmlns='%s'/></iq>"
-	xmlPresence       = "<presence from='%s'><show>%s</show></presence>"
-	xmlMUCPresence    = "<presence id='%s' to='%s' from='%s'><x xmlns='%s'><history maxstanzas='%d'/></x></presence>"
-	xmlMUCUnavailable = "<presence id='%s' from='%s' to='%s' type='unavailable'/>"
-	xmlMUCMessage     = "<message from='%s' id='%s' to='%s' type='groupchat'><body>%s</body></message>"
-	xmlPing           = "<iq from='%s' id='%s' type='get'><ping xmlns='urn:xmpp:ping'/></iq>"
+	NsJabberClient = "jabber:client"
+	NsStream       = "http://etherx.jabber.org/streams"
+	NsIqAuth       = "jabber:iq:auth"
+	NsIqRoster     = "jabber:iq:roster"
+	NsTLS          = "urn:ietf:params:xml:ns:xmpp-tls"
+	NsSASL         = "urn:ietf:params:xml:ns:xmpp-sasl"
+	NsBind         = "urn:ietf:params:xml:ns:xmpp-bind"
+	NsSession      = "urn:ietf:params:xml:ns:xmpp-session"
+	NsDisco        = "http://jabber.org/protocol/disco#items"
+	NsMuc          = "http://jabber.org/protocol/muc"
+	NsMucUser      = "http://jabber.org/protocol/muc#user"
+	NsMucRoom      = "http://hipchat.com/protocol/muc#room"
+	NsMamForward   = "urn:xmpp:forward:0"
+	NsMam          = "urn:xmpp:mam:0"
+
+	xmlStream          = "<stream:stream from='%s' to='%s' version='1.0' xml:lang='en' xmlns='%s' xmlns:stream='%s'>"
+	xmlStartTLS        = "<starttls xmlns='%s'/>"
+	xmlStartSession    = "<iq type='set' id='%s'><session xmlns='%s'/></iq>"
+	xmlIqSet           = "<iq type='set' id='%s'><query xmlns='%s'><username>%s</username><password>%s</password><resource>%s</resource></query></iq>"
+	xmlAuth            = "<auth xmlns='%s' mechanism='PLAIN'>%s</auth>"
+	xmlIqBind          = "<iq type='set' id='%s'><bind xmlns='%s'><resource>%s</resource></bind></iq>"
+	xmlIqGet           = "<iq from='%s' to='%s' id='%s' type='get'><query xmlns='%s'/></iq>"
+	xmlPresence        = "<presence from='%s'><show>%s</show></presence>"
+	xmlMUCPresence     = "<presence id='%s' to='%s' from='%s'><x xmlns='%s'><history maxstanzas='%d'/></x></presence>"
+	xmlMUCUnavailable  = "<presence id='%s' from='%s' to='%s' type='unavailable'/>"
+	xmlMUCMessage      = "<message from='%s' id='%s' to='%s' type='groupchat'><body>%s</body></message>"
+	xmlPing            = "<iq from='%s' id='%s' type='get'><ping xmlns='urn:xmpp:ping'/></iq>"
+	xmlIqHistoryFilter = "<field var='%s'><value>%s</value></field>"
+	xmlIqHistory       = "<iq type='set' id='%s'><query xmlns='urn:xmpp:mam:0'><x xmlns='jabber:x:data'>%s</x><set xmlns='http://jabber.org/protocol/rsm'><max>%d</max></set></query></iq>"
 )
 
 type required struct{}
@@ -74,6 +88,9 @@ type MessageDelay struct {
 
 type IncomingMessage struct {
 	XMLName xml.Name     `xml:"message"`
+	From    string       `xml:"from,attr"`
+	To      string       `xml:"to,attr"`
+	MID     string       `xml:"id,attr"`
 	Body    string       `xml:"body"`
 	Delay   MessageDelay `xml:"delay"`
 }
@@ -96,6 +113,12 @@ type InviteMessage struct {
 	Room    xroom    `xml:"http://hipchat.com/protocol/muc#room x"`
 }
 
+type ForwardedMessage struct {
+	XMLName xml.Name        `xml:"forwarded"`
+	Message IncomingMessage `xml:"message"`
+	Delay   MessageDelay    `xml:"delay"`
+}
+
 func (c *Conn) Stream(jid, host string) {
 	fmt.Fprintf(c.outgoing, xmlStream, jid, host, NsJabberClient, NsStream)
 }
@@ -109,8 +132,16 @@ func (c *Conn) UseTLS() {
 	c.incoming = xml.NewDecoder(c.outgoing)
 }
 
-func (c *Conn) Auth(user, pass, resource string) {
-	fmt.Fprintf(c.outgoing, xmlIqSet, id(), NsIqAuth, user, pass, resource)
+func (c *Conn) Auth(user string, pass string) {
+	raw := "\x00" + user + "\x00" + pass
+	enc := make([]byte, base64.StdEncoding.EncodedLen(len(raw)))
+	base64.StdEncoding.Encode(enc, []byte(raw))
+
+	fmt.Fprintf(c.outgoing, xmlAuth, NsSASL, enc)
+}
+
+func (c *Conn) Bind(resource string) {
+	fmt.Fprintf(c.outgoing, xmlIqBind, id(), NsBind, resource)
 }
 
 func (c *Conn) Features() *features {
@@ -147,14 +178,20 @@ func (c *Conn) Discover(from, to string) {
 	fmt.Fprintf(c.outgoing, xmlIqGet, from, to, id(), NsDisco)
 }
 
-func (c *Conn) Body() string {
+func (c *Conn) Body(start *xml.StartElement) string {
 	b := new(body)
-	c.incoming.DecodeElement(b, nil)
+	c.incoming.DecodeElement(b, start)
 	return b.Body
 }
 
 func (c *Conn) Message(start *xml.StartElement) *IncomingMessage {
 	m := new(IncomingMessage)
+	c.incoming.DecodeElement(&m, start)
+	return m
+}
+
+func (c *Conn) ForwardedMessage(start *xml.StartElement) *ForwardedMessage {
+	m := new(ForwardedMessage)
 	c.incoming.DecodeElement(&m, start)
 	return m
 }
@@ -200,6 +237,22 @@ func (c *Conn) KeepAlive(from string) {
 
 func (c *Conn) Close() error {
 	return c.outgoing.Close()
+}
+
+func (c *Conn) History(jid string, start time.Time, limit int) {
+	filters := []string{
+		fmt.Sprintf(xmlIqHistoryFilter, "FORM_TYPE", NsMam),
+		fmt.Sprintf(xmlIqHistoryFilter, "with", jid),
+	}
+	if !start.IsZero() {
+		filters = append(filters, fmt.Sprintf(xmlIqHistoryFilter, "start", start.Format("2006-01-02T15:04:05Z")))
+	}
+
+	fmt.Fprintf(c.outgoing, xmlIqHistory, id(), strings.Join(filters, ""), limit)
+}
+
+func (c *Conn) Session() {
+	fmt.Fprintf(c.outgoing, xmlStartSession, id(), NsSession)
 }
 
 func Dial(host string) (*Conn, error) {
