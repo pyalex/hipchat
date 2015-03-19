@@ -96,21 +96,14 @@ type IncomingMessage struct {
 }
 
 type invite struct {
-	XMLName xml.Name `xml:"invite"`
-	From    string   `xml:"from,attr"`
-	Reason  string   `xml:"reason"`
+	XMLName xml.Name `xml:"x"`
+	From    string   `xml:"jid,attr"`
+	Reason  string   `xml:"reason,attr"`
 }
 
 type xroom struct {
 	Name  string `xml:"name"`
 	Topic string `xml:"topic"`
-}
-
-type InviteMessage struct {
-	XMLName xml.Name `xml:"message"`
-	RoomJid string   `xml:"from,attr"`
-	Invite  invite   `xml:"http://jabber.org/protocol/muc#user x>invite"`
-	Room    xroom    `xml:"http://hipchat.com/protocol/muc#room x"`
 }
 
 type ForwardedMessage struct {
@@ -202,10 +195,10 @@ func (c *Conn) Query() *query {
 	return q
 }
 
-func (c *Conn) Invite(start *xml.StartElement) *InviteMessage {
-	i := new(InviteMessage)
+func (c *Conn) Invite(start *xml.StartElement) *invite {
+	i := new(invite)
 	c.incoming.DecodeElement(&i, start)
-	if i.Invite.From == "" || i.Room.Topic == "" {
+	if i.From == "" || i.Reason == "" {
 		return nil
 	}
 	return i

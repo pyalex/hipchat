@@ -31,8 +31,10 @@ type Client struct {
 
 	messageBuffer   []Message
 	recievedHistory chan []Message
+	historyLock     chan bool
 
-	alive chan bool
+	alive  chan bool
+	Closed bool
 }
 
 // A Message represents a message received from HipChat.
@@ -76,14 +78,16 @@ func NewClient(user, pass, resource string) (*Client, error) {
 		connection:      connection,
 		mentionNames:    make(map[string]string),
 		receivedUsers:   make(chan []*User),
-		receivedRooms:   make(chan []*Room),
+		receivedRooms:   make(chan []*Room, 10),
 		receivedMessage: make(chan *Message, 20),
 		OnReconnect:     make(chan bool),
 
 		messageBuffer:   make([]Message, 0),
 		recievedHistory: make(chan []Message),
+		historyLock:     make(chan bool, 1),
 
-		alive: make(chan bool),
+		alive:  make(chan bool),
+		Closed: false,
 	}
 
 	if err != nil {
@@ -126,7 +130,7 @@ func (c *Client) Status(s string) {
 // Join accepts the room id and the name used to display the client in the
 // room.
 func (c *Client) Join(roomId, resource string, history int) {
-	c.connection.MUCPresence(roomId+"/"+resource, c.Id+"/"+c.Resource, history)
+	c.connection.MUCPresence(roomId+"/"+resource, c.Id, history)
 }
 
 func (c *Client) Leave(roomId, resource string) {
@@ -171,6 +175,7 @@ func (c *Client) requestUsers() {
 }
 
 func (c *Client) LoadHistory(roomJid string, start time.Time, limit int) []Message {
+	c.historyLock <- true
 	c.connection.History(roomJid, start, limit)
 	return <-c.recievedHistory
 }
@@ -221,25 +226,16 @@ func (c *Client) authenticate() error {
 	return errors.New("unexpectedly ended auth loop")
 }
 
-func (c *Client) reconnect() {
-	log.Println("Reconnecting...")
-	err := c.connection.Close()
-	if err != nil {
-		log.Println(err)
-	}
+func (c *Client) Close() {
+	log.Println("Closing XMPP connection")
 
-	time.Sleep(1 * time.Minute)
-	connection, err := xmpp.Dial(Host)
-	if err != nil {
-		panic(err)
-	}
+	c.connection.Close()
+	c.Closed = true
 
-	c.connection = connection
-	c.authenticate()
-
-	log.Println("New connection")
-	c.Status("available")
-	c.OnReconnect <- true
+	close(c.receivedMessage)
+	close(c.receivedRooms)
+	close(c.recievedHistory)
+	close(c.receivedUsers)
 }
 
 func strtotime(str string) time.Time {
@@ -254,9 +250,8 @@ func (c *Client) listen() {
 	for {
 		element, err := c.connection.Next()
 		if err != nil {
-			log.Println("Smth went wrong", err)
-			c.reconnect()
-			continue
+			c.Closed = true
+			return
 		}
 
 		switch element.Name.Local + element.Name.Space {
@@ -282,28 +277,26 @@ func (c *Client) listen() {
 				c.receivedUsers <- items
 			}
 		case "message" + xmpp.NsJabberClient:
-			log.Println("incoming..")
 			next, err := c.connection.Next()
 			if err != nil {
 				continue
 			}
 			switch next.Name.Local {
 			case "x":
-				log.Println("invite")
-				invite := c.connection.Invite(&element)
+				invite := c.connection.Invite(&next)
 				if invite == nil {
 					continue
 				}
 
 				items := make([]*Room, 1)
-				items[0] = &Room{Id: invite.RoomJid, Name: invite.Room.Name,
-					Owner: invite.Invite.From, Topic: invite.Room.Topic}
-				//c.receivedRooms <- items
+				items[0] = &Room{Id: invite.From, Topic: invite.Reason}
+				c.receivedRooms <- items
 			case "result":
 				continue
 			case "fin":
 				c.recievedHistory <- c.messageBuffer
 				c.messageBuffer = c.messageBuffer[:0]
+				<-c.historyLock
 			case "body":
 				body := c.connection.Body(&element)
 				m := c.connection.Message(&element)
@@ -318,7 +311,6 @@ func (c *Client) listen() {
 				}
 			}
 		case "forwarded" + xmpp.NsMamForward:
-			log.Println("forwarded")
 			forwarded := c.connection.ForwardedMessage(&element)
 
 			c.messageBuffer = append(c.messageBuffer, Message{
