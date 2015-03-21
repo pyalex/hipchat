@@ -4,12 +4,14 @@ import (
 	"errors"
 	"github.com/pyalex/hipchat/xmpp"
 	"log"
+	"regexp"
 	"time"
 )
 
 var (
-	Host = "chat.hipchat.com"
-	Conf = "conf.hipchat.com"
+	Host           = "chat.hipchat.com"
+	Conf           = "conf.hipchat.com"
+	regexpImage, _ = regexp.Compile("<img src='([^']+)' title='([^']+)' longdesc='([^']+)##([^']+)'")
 )
 
 // A Client represents the connection between the application to the HipChat
@@ -45,6 +47,7 @@ type Message struct {
 	MentionName string
 	Stamp       time.Time
 	Mid         string
+	Attachments []xmpp.Attachment
 }
 
 // A User represents a member of the HipChat service.
@@ -139,8 +142,8 @@ func (c *Client) Leave(roomId, resource string) {
 
 // Say accepts a room id, the name of the client in the room, and the message
 // body and sends the message to the HipChat room.
-func (c *Client) Say(roomId, name, body string) {
-	c.connection.MUCSend(roomId, c.Id+"/"+c.Resource, body)
+func (c *Client) Say(roomId, name, body string, attachments []xmpp.Attachment) {
+	c.connection.MUCSend(roomId, c.Id+"/"+c.Resource, body, attachments)
 }
 
 // KeepAlive is meant to run as a goroutine. It sends a single whitespace
@@ -246,6 +249,21 @@ func strtotime(str string) time.Time {
 	return stamp
 }
 
+func getAttachments(htmlBody string) []xmpp.Attachment {
+	if htmlBody == "" {
+		return nil
+	}
+	attachments := make([]xmpp.Attachment, 0)
+	res := regexpImage.FindAllStringSubmatch(htmlBody, -1)
+
+	if res != nil {
+		for _, row := range res {
+			attachments = append(attachments, xmpp.Attachment{row[1], row[2], row[3], row[4]})
+		}
+	}
+	return attachments
+}
+
 func (c *Client) listen() {
 	for {
 		element, err := c.connection.Next()
@@ -277,49 +295,38 @@ func (c *Client) listen() {
 				c.receivedUsers <- items
 			}
 		case "message" + xmpp.NsJabberClient:
-			next, err := c.connection.Next()
-			if err != nil {
-				continue
-			}
-			switch next.Name.Local {
-			case "x":
-				invite := c.connection.Invite(&next)
-				if invite == nil {
-					continue
+			m := c.connection.Message(&element)
+
+			if m.Body != "" && m.Body != "none" {
+				c.receivedMessage <- &Message{
+					From:        m.From,
+					To:          m.To,
+					Body:        m.Body,
+					Mid:         m.MID,
+					Stamp:       strtotime(m.Delay.Stamp),
+					Attachments: getAttachments(m.HTMLBody.Body),
 				}
 
-				items := make([]*Room, 1)
-				items[0] = &Room{Id: invite.From, Topic: invite.Reason}
-				c.receivedRooms <- items
-			case "result":
-				continue
-			case "fin":
+			} else if m.Fin.Body != "" {
 				c.recievedHistory <- c.messageBuffer
 				c.messageBuffer = c.messageBuffer[:0]
 				<-c.historyLock
-			case "body":
-				body := c.connection.Body(&element)
-				m := c.connection.Message(&element)
+			} else if m.Invite != nil && m.Invite.From != "" {
+				items := make([]*Room, 1)
+				items[0] = &Room{Id: m.Invite.From, Topic: m.Invite.Reason}
+				c.receivedRooms <- items
+			} else if m.Result.Body != "" {
+				forwarded := c.connection.ForwardedMessage(m.Result.Body)
 
-				//c.alive <- true
-				c.receivedMessage <- &Message{
-					From:  m.From,
-					To:    m.To,
-					Body:  body,
-					Mid:   m.MID,
-					Stamp: strtotime(m.Delay.Stamp),
-				}
+				c.messageBuffer = append(c.messageBuffer, Message{
+					From:        forwarded.Message.From,
+					To:          forwarded.Message.To,
+					Body:        forwarded.Message.Body,
+					Mid:         forwarded.Message.MID,
+					Stamp:       strtotime(forwarded.Delay.Stamp),
+					Attachments: getAttachments(forwarded.Message.HTMLBody.Body),
+				})
 			}
-		case "forwarded" + xmpp.NsMamForward:
-			forwarded := c.connection.ForwardedMessage(&element)
-
-			c.messageBuffer = append(c.messageBuffer, Message{
-				From:  forwarded.Message.From,
-				To:    forwarded.Message.To,
-				Body:  forwarded.Message.Body,
-				Mid:   forwarded.Message.MID,
-				Stamp: strtotime(forwarded.Delay.Stamp),
-			})
 		default:
 			log.Println(element.Name.Local, element.Name.Space, element.Attr)
 		}

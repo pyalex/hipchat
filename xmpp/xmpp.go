@@ -29,6 +29,8 @@ const (
 	NsMucRoom      = "http://hipchat.com/protocol/muc#room"
 	NsMamForward   = "urn:xmpp:forward:0"
 	NsMam          = "urn:xmpp:mam:0"
+	NsHTML         = "http://jabber.org/protocol/xhtml-im"
+	NsXHTML        = "http://www.w3.org/1999/xhtml"
 
 	xmlStream          = "<stream:stream from='%s' to='%s' version='1.0' xml:lang='en' xmlns='%s' xmlns:stream='%s'>"
 	xmlStartTLS        = "<starttls xmlns='%s'/>"
@@ -39,8 +41,10 @@ const (
 	xmlIqGet           = "<iq from='%s' to='%s' id='%s' type='get'><query xmlns='%s'/></iq>"
 	xmlPresence        = "<presence from='%s'><show>%s</show></presence>"
 	xmlMUCPresence     = "<presence id='%s' to='%s' from='%s'><x xmlns='%s'><history maxstanzas='%d'/></x></presence>"
+	xmlHTMLBody        = "<html xmlns='%s'><body xmlns='%s'><p>%s</p><p>%s</p></body></html>"
+	xmlHTMLImage       = "<img src='%s' title='%s' longdesc='%s##%s'/>"
 	xmlMUCUnavailable  = "<presence id='%s' from='%s' to='%s' type='unavailable'/>"
-	xmlMUCMessage      = "<message from='%s' id='%s' to='%s' type='groupchat'><body>%s</body></message>"
+	xmlMUCMessage      = "<message from='%s' id='%s' to='%s' type='groupchat'><body>%s</body>%s</message>"
 	xmlPing            = "<iq from='%s' id='%s' type='get'><ping xmlns='urn:xmpp:ping'/></iq>"
 	xmlIqHistoryFilter = "<field var='%s'><value>%s</value></field>"
 	xmlIqHistory       = "<iq type='set' id='%s'><query xmlns='urn:xmpp:mam:0'><x xmlns='jabber:x:data'>%s</x><set xmlns='http://jabber.org/protocol/rsm'><max>%d</max></set></query></iq>"
@@ -82,17 +86,29 @@ type Message struct {
 	Body        string
 }
 
+type Attachment struct {
+	ImageURL      string
+	ImageFilename string
+	ThumbnailSize string
+	ThumbnailURL  string
+}
+
 type MessageDelay struct {
 	Stamp string `xml:"stamp,attr"`
 }
 
 type IncomingMessage struct {
-	XMLName xml.Name     `xml:"message"`
-	From    string       `xml:"from,attr"`
-	To      string       `xml:"to,attr"`
-	MID     string       `xml:"id,attr"`
-	Body    string       `xml:"body"`
-	Delay   MessageDelay `xml:"delay"`
+	XMLName  xml.Name     `xml:"message"`
+	From     string       `xml:"from,attr"`
+	To       string       `xml:"to,attr"`
+	MID      string       `xml:"id,attr"`
+	Body     string       `xml:"body"`
+	Delay    MessageDelay `xml:"delay"`
+	HTMLBody body         `xml:"html>body"`
+
+	Invite *invite `xml:"x"`
+	Result body    `xml:"result"`
+	Fin    body    `xml:"fin"`
 }
 
 type invite struct {
@@ -183,9 +199,9 @@ func (c *Conn) Message(start *xml.StartElement) *IncomingMessage {
 	return m
 }
 
-func (c *Conn) ForwardedMessage(start *xml.StartElement) *ForwardedMessage {
+func (c *Conn) ForwardedMessage(start string) *ForwardedMessage {
 	m := new(ForwardedMessage)
-	c.incoming.DecodeElement(&m, start)
+	xml.Unmarshal([]byte(start), &m)
 	return m
 }
 
@@ -195,9 +211,9 @@ func (c *Conn) Query() *query {
 	return q
 }
 
-func (c *Conn) Invite(start *xml.StartElement) *invite {
+func (c *Conn) Invite(start string) *invite {
 	i := new(invite)
-	c.incoming.DecodeElement(&i, start)
+	xml.Unmarshal([]byte(start), &i)
 	if i.From == "" || i.Reason == "" {
 		return nil
 	}
@@ -216,8 +232,18 @@ func (c *Conn) MUCUnavailable(roomId, jid string) {
 	fmt.Fprintf(c.outgoing, xmlMUCUnavailable, id(), jid, roomId)
 }
 
-func (c *Conn) MUCSend(to, from, body string) {
-	fmt.Fprintf(c.outgoing, xmlMUCMessage, from, id(), to, html.EscapeString(body))
+func (c *Conn) MUCSend(to, from, body string, attachments []Attachment) {
+	if len(attachments) > 0 {
+		tags := []string{}
+		for _, a := range attachments {
+			tags = append(tags, fmt.Sprintf(xmlHTMLImage, a.ImageURL, a.ImageFilename, a.ThumbnailSize, a.ThumbnailURL))
+		}
+		html_body := fmt.Sprintf(xmlHTMLBody, NsHTML, NsXHTML, html.EscapeString(body), strings.Join(tags, "\n"))
+		fmt.Fprintf(c.outgoing, xmlMUCMessage, from, id(), to, html.EscapeString(body), html_body)
+
+	} else {
+		fmt.Fprintf(c.outgoing, xmlMUCMessage, from, id(), to, html.EscapeString(body), "")
+	}
 }
 
 func (c *Conn) Roster(from, to string) {
