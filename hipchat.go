@@ -298,6 +298,10 @@ func (c *Client) listen() {
 			m := c.connection.Message(&element)
 
 			if m.Body != "" && m.Body != "none" {
+				if m.Body == "@attachment" {
+					m.Body = ""
+				}
+
 				c.receivedMessage <- &Message{
 					From:        m.From,
 					To:          m.To,
@@ -317,6 +321,10 @@ func (c *Client) listen() {
 				c.receivedRooms <- items
 			} else if m.Result.Body != "" {
 				forwarded := c.connection.ForwardedMessage(m.Result.Body)
+
+				if forwarded.Message.Body == "@attachment" {
+					forwarded.Message.Body = ""
+				}
 
 				c.messageBuffer = append(c.messageBuffer, Message{
 					From:        forwarded.Message.From,
