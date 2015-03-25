@@ -274,26 +274,24 @@ func (c *Client) listen() {
 
 		switch element.Name.Local + element.Name.Space {
 		case "iq" + xmpp.NsJabberClient: // rooms and rosters
-			if c.connection.Body(&element) == "" {
-				continue
-			}
+			continue
 
-			query := c.connection.Query()
-			switch query.XMLName.Space {
-			case xmpp.NsMucRoom:
-				items := make([]*Room, len(query.Items))
-				for i, item := range query.Items {
-					items[i] = &Room{Id: item.Jid, Name: item.Name,
-						Owner: item.Owner, Topic: item.Topic}
-				}
-				c.receivedRooms <- items
-			case xmpp.NsIqRoster:
-				items := make([]*User, len(query.Items))
-				for i, item := range query.Items {
-					items[i] = &User{Id: item.Jid, Name: item.Name, MentionName: item.MentionName}
-				}
-				c.receivedUsers <- items
-			}
+			//query := c.connection.Query()
+			//switch query.XMLName.Space {
+			//case xmpp.NsMucRoom:
+			//	items := make([]*Room, len(query.Items))
+			//	for i, item := range query.Items {
+			//		items[i] = &Room{Id: item.Jid, Name: item.Name,
+			//			Owner: item.Owner, Topic: item.Topic}
+			//	}
+			//	c.receivedRooms <- items
+			//case xmpp.NsIqRoster:
+			//	items := make([]*User, len(query.Items))
+			//	for i, item := range query.Items {
+			//		items[i] = &User{Id: item.Jid, Name: item.Name, MentionName: item.MentionName}
+			//	}
+			//	c.receivedUsers <- items
+			//}
 		case "message" + xmpp.NsJabberClient:
 			m := c.connection.Message(&element)
 
