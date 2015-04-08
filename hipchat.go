@@ -265,6 +265,12 @@ func getAttachments(htmlBody string) []xmpp.Attachment {
 }
 
 func (c *Client) listen() {
+	defer func() {
+		if x := recover(); x != nil {
+			log.Println("Closed with exception", x)
+		}
+	}()
+
 	for {
 		element, err := c.connection.Next()
 		if err != nil {
@@ -296,7 +302,7 @@ func (c *Client) listen() {
 			m := c.connection.Message(&element)
 
 			if m.Body != "" && m.Body != "none" {
-				if m.Body == "@attachment" {
+				if m.Body == "#attachment" {
 					m.Body = ""
 				}
 
@@ -320,7 +326,7 @@ func (c *Client) listen() {
 			} else if m.Result.Body != "" {
 				forwarded := c.connection.ForwardedMessage(m.Result.Body)
 
-				if forwarded.Message.Body == "@attachment" {
+				if forwarded.Message.Body == "#attachment" {
 					forwarded.Message.Body = ""
 				}
 
