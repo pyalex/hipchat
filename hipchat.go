@@ -178,7 +178,9 @@ func (c *Client) requestUsers() {
 }
 
 func (c *Client) LoadHistory(roomJid string, start time.Time, limit int) []Message {
+	log.Println("History lock acquire start")
 	c.historyLock <- true
+	log.Println("History lock aquire end")
 	c.connection.History(roomJid, start, limit)
 	return <-c.recievedHistory
 }
@@ -318,7 +320,9 @@ func (c *Client) listen() {
 			} else if m.Fin.Body != "" {
 				c.recievedHistory <- c.messageBuffer
 				c.messageBuffer = c.messageBuffer[:0]
+				log.Println("History lock released start")
 				<-c.historyLock
+				log.Println("History lock release end")
 			} else if m.Invite != nil && m.Invite.From != "" {
 				items := make([]*Room, 1)
 				items[0] = &Room{Id: m.Invite.From, Topic: m.Invite.Reason}
